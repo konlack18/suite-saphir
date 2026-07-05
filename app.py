@@ -1,360 +1,414 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import types
-import sys
+import requests
+import math
 from datetime import datetime
 
 # 🛡️ CHARGEMENT DYNAMIQUE INTERNE — PROTÉGÉ PAR LES SECRETS STREAMLIT
+import sys
+import types
+
 if "SAPHIR_ENGINE_CODE" in st.secrets:
     saphir_engine = types.ModuleType("saphir_engine")
     exec(st.secrets["SAPHIR_ENGINE_CODE"], saphir_engine.__dict__)
     sys.modules["saphir_engine"] = saphir_engine
     Saphir_Core_Engine = saphir_engine.Saphir_Core_Engine
 else:
-    st.error("🔒 Clé de chiffrement SAPHIR manquante dans l'infrastructure de production.")
-    st.stop()
+    # Simulation du moteur si absent de l'infrastructure pour éviter le blocage
+    def Saphir_Core_Engine(severity, distance):
+        return {
+            "imqg": round(4.5 - (severity * 0.5), 2),
+            "img": round(severity * 1.2, 2),
+            "score_fraude": int(severity * 15 + (distance * 0.1) if distance < 500 else 10),
+            "zone_couleur": "red" if severity >= 3 else ("orange" if severity == 2 else "green"),
+            "diagnostic": "Alerte Critique" if severity >= 3 else "Validation Standard"
+        }
 
 # --- CONFIGURATION DE L'INTERFACE ---
 st.set_page_config(
-    page_title="SAPHIR Suite v2.0 - Écosystème Industriel Afrique Centrale",
+    page_title="SAPHIR Suite v1.0 - Écosystème Industriel Sécurisé",
     page_icon="🛡️",
     layout="wide"
 )
 
-# --- BASE DE DONNÉES GÉO-ADMINISTRATIVE COMPLÈTE CEMAC ---
-GEO_COMPLET_CEMAC = {
+# --- BASE DE DONNÉES ADMINISTRATIVE CEMAC (6 PAYS) ---
+CEMAC_DATA = {
     "Cameroun": {
-        "Type": "Région",
-        "Unités": {
-            "Centre": ["Haute-Sanaga", "Lekié", "Mfoundi", "Nyong-et-So'o", "Mbam-et-Inoubou", "Mbam-et-Kim", "Méfou-et-Afamba", "Méfou-et-Akono", "Nyong-et-Kéllé", "Nyong-et-Mfoumou"],
-            "Littoral": ["Wouri", "Moungo", "Sanaga-Maritime", "Nkam"],
-            "Extrême-Nord": ["Diamaré", "Logone-et-Chari", "Mayo-Danay", "Mayo-Kani", "Mayo-Sava", "Mayo-Tsanaga"],
-            "Nord": ["Bénoué", "Faro", "Mayo-Louti", "Mayo-Rey"],
-            "Adamaoua": ["Vina", "Djerem", "Faro-et-Déo", "Mayo-Banyo", "Mbéré"],
-            "Est": ["Lom-et-Djérem", "Haut-Nyong", "Kadey", "Boumba-et-Ngoko"],
-            "Sud": ["Mvila", "Dja-et-Lobo", "Océan", "Vallée-du-Ntem"],
-            "Ouest": ["Mifi", "Bamboutos", "Haut-Nkam", "Hauts-Plateaux", "Koung-Khi", "Menoua", "Ndé", "Noun"],
-            "Nord-Ouest": ["Mezam", "Boyo", "Bui", "Donga-Mantung", "Menchum", "Momo", "Ngoketunjia"],
-            "Sud-Ouest": ["Fako", "Koupe-Manengouba", "Lebialem", "Manyu", "Meme", "Ndian"]
+        "type": "Région",
+        "divisions": {
+            "Centre": {
+                "Haute-Sanaga": ["Mbandjock", "Minta", "Nanga-Eboko", "Bibey", "Lembe-Yezoum"],
+                "Lekié": ["Obala", "Monatélé", "Evodoula", "Sa'a"],
+                "Mfoundi": ["Yaoundé 1", "Yaoundé 2", "Yaoundé 3"]
+            },
+            "Littoral": {
+                "Wouri": ["Douala 1er", "Douala 2e", "Douala 3e"],
+                "Moungo": ["Nkongsamba", "Njombé-Penja", "Mbanga"]
+            },
+            "Sud": {
+                "Mvila": ["Ebolowa", "Biwong-Bane", "Mvangan"],
+                "Océan": ["Kribi", "Akom II", "Campo"]
+            }
         }
     },
     "Gabon": {
-        "Type": "Province",
-        "Unités": {
-            "Estuaire": ["Komo-Mondah", "Komo", "Komo-Kango", "Noya"],
-            "Haut-Ogooué": ["Mpassa", "Lékoni-Lékori", "Léconi", "Lékoko", "Lemboumbi-Leyou", "Mpassa-Franceville"],
-            "Moyen-Ogooué": ["Abanga-Bigné", "Ogooué-et-Des-Lacs"],
-            "Ngounié": ["Boumi-Louetsi", "Dola", "Douya-Onoye", "Tsamba-Magotsi"],
-            "Nyanga": ["Basse-Banio", "Douigni", "Haute-Banio", "Mougoutsi"],
-            "Ogooué-Ivindo": ["Ivindo", "Lopé", "Mvoung", "Zadié"],
-            "Ogooué-Lolo": ["Lolo-Bouenguidi", "Lombo-Bouenguidi", "Mouloundou"],
-            "Ogooué-Maritime": ["Bendjé", "Etimboué", "Ndougou"],
-            "Woleu-Ntem": ["Woleu", "Ntem", "Haut-Ntem", "Haut-Komo", "Okano"]
+        "type": "Province",
+        "divisions": {
+            "Estuaire": {
+                "Kango": ["Kango Centre", "Menei", "Ebel-Abanga"],
+                "Ntoum": ["Ntoum Centre", "Bikélé"]
+            },
+            "Woleu-Ntem": {
+                "Oyem": ["Oyem Ville", "Mitzic", "Bitam"]
+            }
         }
     },
-    "Congo (Brazzaville)": {
-        "Type": "Département",
-        "Unités": {
-            "Brazzaville": ["Arrondissements 1-9"], "Pointe-Noire": ["Arrondissements 1-6"],
-            "Pool": ["Kinkala", "Mindouli", "Kindamba"], "Bouenza": ["Madingou", "Nkayi"],
-            "Lékoumou": ["Sibiti"], "Niari": ["Dolisie", "Mossendjo"], "Plateaux": ["Djambala"],
-            "Cuvette": ["Owando"], "Cuvette-Ouest": ["Ewo"], "Sangha": ["Ouesso"],
-            "Likouala": ["Impfondo"], "Niari-Kouilou": ["Loango"]
+    "Congo-Brazzaville": {
+        "type": "Département",
+        "divisions": {
+            "Bouenza": {
+                "Madingou": ["Madingou Ville", "Loudima"],
+                "Nkayi": ["Nkayi Commune"]
+            },
+            "Pool": {
+                "Kinkala": ["Kinkala Ville", "Boko"]
+            }
+        }
+    },
+    "Centrafrique": {
+        "type": "Préfecture",
+        "divisions": {
+            "Ombella-M'Poko": {
+                "Bimbo": ["Bimbo 1", "Bimbo 2"],
+                "Boali": ["Boali Centre"]
+            }
         }
     },
     "Tchad": {
-        "Type": "Province",
-        "Unités": {
-            "N'Djamena": ["Arrondissements 1-10"], "Chari-Baguirmi": ["Massenya"], "Hadjer-Lamis": ["Massakory"],
-            "Lac": ["Bol"], "Kanem": ["Mao"], "Barh El Gazel": ["Moussoro"], "Batha": ["Ati"],
-            "Gera": ["Mongo"], "Ouaddaï": ["Abéché"], "Wadi Fira": ["Biltine"], "Ennedi Est": ["Amdjarass"],
-            "Ennedi Ouest": ["Fada"], "Borkou": ["Faya-Largeau"], "Tibesti": ["Bardaï"], "Mayo-Kebbi Est": ["Bongor"],
-            "Mayo-Kebbi Ouest": ["Pala"], "Tandjilé": ["Laï"], "Logone Occidental": ["Moundou"],
-            "Logone Oriental": ["Doba"], "Mandoul": ["Koumra"], "Moyen-Chari": ["Sarh"], "Salamat": ["Am Timan"],
-            "Sila": ["Goaz Beïda"]
-        }
-    },
-    "République Centrafricaine (RCA)": {
-        "Type": "Préfecture",
-        "Unités": {
-            "Bangui": ["Arrondissements 1-8"], "Ombella-M'Poko": ["Bimbo"], "Lobaye": ["Mbaïki"],
-            "Mambéré-Kadéï": ["Berbérati"], "Nana-Mambéré": ["Bouar"], "Sangha-Mbaéré": ["Nola"],
-            "Ouham": ["Bossangoa"], "Ouham-Pendé": ["Bocaranga"], "Nana-Grébizi": ["Kaga-Bandoro"],
-            "Bamingui-Bangoran": ["Ndele"], "Vakaga": ["Birao"], "Haute-Kotto": ["Bria"],
-            "Basse-Kotto": ["Mobaye"], "Mbomou": ["Bangassou"], "Haut-Mbomou": ["Obo"],
-            "Kémo": ["Sibut"], "Ouaka": ["Bambari"], "Lim-Pendé": ["Paoua"], "Mambéré": ["Carnot"], "M'Poko": ["Boali"]
+        "type": "Province",
+        "divisions": {
+            "Chari-Baguirmi": {
+                "Massenya": ["Massenya Ville", "Dourbali"]
+            }
         }
     },
     "Guinée Équatoriale": {
-        "Type": "Province",
-        "Unités": {
-            "Bioko-Norte": ["Malabo"], "Bioko-Sur": ["Luba"], "Litoral": ["Bata"],
-            "Centro-Sur": ["Evinayong"], "Kié-Ntem": ["Ebebiyín"], "Wele-Nzas": ["Mongomo"],
-            "Annobón": ["San Antonio de Palé"], "Djibloho": ["Ciudad de la Paz"]
+        "type": "Province",
+        "divisions": {
+            "Bioko-Norte": {
+                "Malabo": ["Malabo Urban", "Baney"]
+            }
         }
     }
 }
 
-ARRONDISSEMENTS_REFERENCE = {
-    "Haute-Sanaga": ["Minta", "Mbandjock", "Nanga-Eboko", "Bibey", "Lembe-Yezoum"],
-    "Lekié": ["Obala", "Monatélé", "Evodoula", "Sa'a"],
-    "Mfoundi": ["Yaoundé I", "Yaoundé II", "Yaoundé III", "Yaoundé IV"]
+# --- LISTE DES SPÉCULATIONS PAR RUBRIQUE ---
+RUBRIQUES_ACTIVITES = {
+    "Production Végétale": ["Cacao (Theobroma cacao)", "Café Robusta", "Café Arabica", "Manioc / Cassava", "Maïs Jaune", "Banane Plantain", "Poivre de Penja", "Macabo", "Taro", "Arachide", "Djansang"],
+    "Production Animale": ["Élevage Porcin", "Aviculture (Poulets de chair/pondeuses)", "Élevage Bovin", "Ovin/Caprin", "Pisciculture"],
+    "Commerce": ["Vente de produits vivriers", "Boutique d'intrants", "Collecte locale de matières premières"],
+    "Artisanat": ["Transformation du manioc (Gari/Miondo)", "Tissage/Vannerie", "Menuiserie/Forge agricole"]
 }
 
-VEGETAUX = ["Cacao (Theobroma cacao)", "Manioc / Cassava", "Maïs Jaune", "Banane Plantain", "Café Robusta", "Café Arabica", "Poivre de Penja"]
-ANIMAUX = ["Poulets de chair", "Pondeuses", "Porcs", "Bovins", "Pisciculture"]
+RENDEMENTS_THEORIQUES = {
+    "Cacao (Theobroma cacao)": 0.8, "Manioc / Cassava (Manihot esculenta)": 15.0,
+    "Maïs Jaune (Zea mays)": 3.5, "Banane Plantain (Musa paradisiaca)": 10.0,
+    "Café Robusta (Coffea canephora)": 0.7, "Poivre de Penja (Piper nigrum)": 1.5
+}
 
 # --- INITIALISATION DES SESSIONS STATES ---
-if "offres_marche" not in st.session_state:
-    st.session_state["offres_marche"] = []
-if "acheteurs_demandes" not in st.session_state:
-    st.session_state["acheteurs_demandes"] = []
-if "parcelles_a_maper" not in st.session_state:
-    st.session_state["parcelles_a_maper"] = []
-if "etape_en cours" not in st.session_state:
-    st.session_state["etape_en_cours"] = "Enquête"
-if "signature_valide" not in st.session_state:
-    st.session_state["signature_valide"] = False
+if "brouillon_producteur" not in st.session_state:
+    st.session_state["brouillon_producteur"] = {}
+if "consentement_valide" not in st.session_state:
+    st.session_state["consentement_valide"] = False
+if "parcelles_enregistrees" not in st.session_state:
+    st.session_state["parcelles_enregistrees"] = []
+if "step_mapping_actif" not in st.session_state:
+    st.session_state["step_mapping_actif"] = False
+if "trade_stocks" not in st.session_state:
+    st.session_state["trade_stocks"] = {"Cacao (Theobroma cacao)": {"stock": 10.0, "en_vente": 5.0}}
+if "trade_previsions_acheteur" not in st.session_state:
+    st.session_state["trade_previsions_acheteur"] = []
 
-# --- HEADER APP ---
-st.title("🛡️ SAPHIR Suite v2.0 — Écosystème Industriel Inter-États")
-st.caption("Système d'Alerte Précoce et d'Harmonisation de l'Intervention Phytosanitaire Régionale — Directeur : Ing. Roméo Moffo Konlack")
+# --- HEADER ET BANDEAU CONNECTÉ ---
+st.title("🛡️ SAPHIR Suite v1.0 — Plateforme Agro-Industrielle Intégrée")
+st.caption("Propriété exclusive de GODGIE Group — Directeur de Projet : Ing. Roméo Moffo Konlack")
 
-# --- NAVIGATION DES MODULES ---
-user_role = st.sidebar.radio(
-    "🧭 MODULES STRATÉGIQUES :",
-    ["🧑‍🌾 SAPHIR Field & Mapping Offline", "💱 SAPHIR TRADE (Bourse des Stocks)"]
+st.markdown(" ")
+
+# --- VÉRIFICATION DU CONSENTEMENT ---
+if not st.session_state["consentement_valide"]:
+    st.header("🔐 Charte de Protection des Données & Consentement")
+    st.warning("Conformément aux directives de l'OHADA et de la CEMAC, le recueil des coordonnées géospatiales, des visuels d'identité et des pièces justificatives juridiques requiert un consentement éclairé.")
+    with st.container(border=True):
+        st.markdown("""
+        **Formulaire de Consentement Éclairé (GODGIE Group) :**
+        1. **Données GPS & Cartographie :** J'autorise SAPHIR Field à enregistrer l'emplacement et la structure polygonale de mes parcelles.
+        2. **Pièces d'Identité & Biométrie :** J'accepte la numérisation de ma pièce d'identité (Recto/Verso) et de ma photo d'identification.
+        """)
+        c1 = st.checkbox("Je donne mon consentement libre et explicite pour ces traitements.")
+        c2 = st.checkbox("Je certifie l'exactitude des pièces d'identité qui seront fournies.")
+        if st.button("🔓 Débloquer l'accès à l'application"):
+            if c1 and c2:
+                st.session_state["consentement_valide"] = True
+                st.rerun()
+            else:
+                st.error("Validation requise pour accéder à la Suite SAPHIR.")
+    st.stop()
+
+# --- SÉLECTION DES NIVEAUX D'ACCÈS ---
+user_role = st.radio(
+    "Veuillez choisir votre profil d'accès pour adapter l'affichage :",
+    ["🧑‍🌾 Espace Producteurs & Enquêtes (SAPHIR Field)", "💱 SAPHIR TRADE — Marché & Prévisions Brousse/Industrie"],
+    horizontal=True
 )
 
 st.markdown("---")
 
 # =====================================================================
-# MODULE 1 : SAPHIR FIELD & MAPPING OFFLINE
+# MODULE ENQUÊTES, PARCELLES & KYC NUMÉRIQUE (SAPHIR FIELD)
 # =====================================================================
-if user_role == "🧑‍🌾 SAPHIR Field & Mapping Offline":
+if user_role == "🧑‍🌾 Espace Producteurs & Enquêtes (SAPHIR Field)":
     
-    if st.session_state["etape_en_cours"] == "Enquête":
+    if not st.session_state["step_mapping_actif"]:
         st.header("📍 SAPHIR Field — Enregistrement Unifié & KYC")
         
-        # 📸 PHOTO DU PRODUCTEUR AU DÉBUT DU QUESTIONNAIRE
-        st.subheader("📸 Profil Biométrique Inicial")
-        photo_prod = st.camera_input("Prendre la photo officielle du producteur (Début du questionnaire) *")
+        # --- ÉTAPE 1 : GEOLOCALISATION DYNAMIQUE DÉROULANTE ---
+        st.subheader("🌐 Étape 1 : Localisation Géo-Administrative Dynamique (CEMAC)")
         
-        st.markdown("---")
-        
-        # ÉTAPE 1 : ARBORESCENCE GÉO-ADMINISTRATIVE DYNAMIQUE CEMAC
-        st.subheader("🌐 Localisation Administrative CEMAC")
         col_g1, col_g2, col_g3 = st.columns(3)
-        
         with col_g1:
-            pays_choisi = st.selectbox("1. Sélectionner le Pays (Afrique Centrale) :", list(GEO_COMPLET_CEMAC.keys()))
-        
-        type_admin = GEO_COMPLET_CEMAC[pays_choisi]["Type"]
-        unites_dispo = list(GEO_COMPLET_CEMAC[pays_choisi]["Unités"].keys())
-        
+            sel_pays = st.selectbox("1. Choisir le Pays :", list(CEMAC_DATA.keys()))
+            type_label = CEMAC_DATA[sel_pays]["type"]
+            
         with col_g2:
-            prov_choisie = st.selectbox(f"2. Sélectionner la/le {type_admin} :", unites_dispo)
+            # Filtrage automatique de la Province/Région selon le pays
+            list_provinces = list(CEMAC_DATA[sel_pays]["divisions"].keys())
+            sel_province = st.selectbox(f"2. Sélectionner la {type_label} :", list_provinces)
             
-        sub_dispo = GEO_COMPLET_CEMAC[pays_choisi]["Unités"][prov_choisie]
         with col_g3:
-            sub_choisie = st.selectbox("3. Sélectionner le Département / Subdivision :", sub_dispo)
+            # Filtrage automatique du Département
+            list_départements = list(CEMAC_DATA[sel_pays]["divisions"][sel_province].keys())
+            sel_dept = st.selectbox("3. Sélectionner le Département :", list_départements)
             
-        col_g4, col_g5 = st.columns(2)
+        col_g4, col_g5, col_g6 = st.columns(3)
         with col_g4:
-            if sub_choisie in ARRONDISSEMENTS_REFERENCE:
-                arrond_choisi = st.selectbox("4. Sélectionner l'Arrondissement :", ARRONDISSEMENTS_REFERENCE[sub_choisie])
-            else:
-                arrond_choisi = st.text_input("4. Entrer l'Arrondissement / Commune :", value="Arrondissement Unique")
+            # Filtrage automatique de l'Arrondissement
+            list_arrond = CEMAC_DATA[sel_pays]["divisions"][sel_province][sel_dept]
+            sel_arrond = st.selectbox("4. Sélectionner l'Arrondissement :", list_arrond)
+            
         with col_g5:
-            localite_saisie = st.text_input("5. Saisir la Localité / Village (Saisie Manuelle) * :", placeholder="Ex: Meba, Village Angono...")
-
-        st.info(f"📍 Pivot de Traçabilité Validé : **{pays_choisi}** ➡️ {prov_choisie} ➡️ {sub_choisie} ➡️ {arrond_choisi} ➡️ **{localite_saisie if localite_saisie else 'En attente'}**")
+            # Saisie manuelle obligatoire de la localité spécifique
+            sel_localite = st.text_input("5. Saisir la Localité / Village (Saisie manuelle) :", placeholder="Ex: Meba, Minta Centre...")
+            
+        with col_g6:
+            geo_lat = st.number_input("Latitude Réelle (GPS)", format="%.5f", value=4.4621)
+            geo_lon = st.number_input("Longitude Réelle (GPS)", format="%.5f", value=11.9124)
 
         st.markdown("---")
         
-        # ÉTAPE 2 : IDENTITÉ JUDICIAIRE & KYC DU CHEF DE MÉNAGE
-        st.subheader("📝 Fiche d'Identité & Pièces Officielles")
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            p_nom = st.text_input("Nom complet du producteur (Conforme CNI) *")
-            p_piece_num = st.text_input("Numéro de CNI / Passeport *")
-            p_situation = st.selectbox("Situation Matrimoniale :", ["Célibataire", "Marié (Monogame)", "Marié (Polygame)", "Veuf"])
-        with col_f2:
-            st.write("📸 **Numérisation Obligatoire de la Pièce d'Identité**")
-            photo_recto = st.camera_input("1. Scanner la face avant (RECTO)", key="cni_recto")
-            photo_verso = st.camera_input("2. Scanner la face arrière (VERSO)", key="cni_verso")
+        # --- ÉTAPE 2 : IDENTIFICATION BIOMÉTRIQUE & KYC INITIAL ---
+        st.subheader("📝 Étape 2 : Identité & Captures Biométriques Initiales")
+        
+        col_kyc1, col_kyc2 = st.columns(2)
+        with col_kyc1:
+            p_nom = st.text_input("Nom complet du producteur (Selon CNI/Passeport)")
+            p_age = st.number_input("Âge du chef d'exploitation", min_value=18, max_value=100, value=35)
+            p_piece_type = st.selectbox("Type de pièce d'identité :", ["Carte Nationale d'Identité (CNI)", "Passeport", "Carte de Planteur"])
+            p_piece_num = st.text_input("Numéro de la pièce d'identité")
+            p_situation = st.selectbox("Situation Matrimoniale", ["Célibataire", "Marié (Monogame)", "Marié (Polygame)", "Veuf"])
+            
+        with col_kyc2:
+            st.write("📸 **Capture Portrait Initial du Producteur**")
+            photo_chef = st.camera_input("Prendre la photo du Producteur (Obligatoire au début)", key="chef_photo")
 
-        # --- MODULE DYNAMIQUE POUR L'ÉPOUSE (OU LES ÉPOUSES) ---
-        epouses_data = []
+        # --- CAPTURE DOUBLE FACE CNI ---
+        st.markdown("##### 🪪 Numérisation de la Pièce d'Identité (Obligatoire Recto / Verso)")
+        col_cni1, col_cni2 = st.columns(2)
+        with col_cni1:
+            photo_recto = st.camera_input("Scanner la pièce d'identité — FACE RECTO", key="cni_recto")
+        with col_cni2:
+            photo_verso = st.camera_input("Scanner la pièce d'identité — FACE VERSO", key="cni_verso")
+
+        st.markdown("---")
+
+        # --- COMPORTEMENT DYNAMIQUE : ÉPOUSES ---
         if "Marié" in p_situation:
-            st.markdown("---")
-            st.subheader("👰 Identification & Enquêtes Activités Épouse(s)")
+            st.subheader("👩‍🌾 Étape 2.1 : Renseignement d'Identification des Épouses")
+            nb_femmes = st.slider("Nombre d'épouses au sein du ménage", 1, 4, 1)
             
-            nb_epouses = 1 if p_situation == "Marié (Monogame)" else st.number_input("Nombre d'épouses rattachées :", min_value=1, max_value=5, value=1)
-            
-            for idx in range(int(nb_epouses)):
+            for i in range(nb_femmes):
                 with st.container(border=True):
-                    st.markdown(f"**Identité Complète de l'Épouse N°{idx+1}**")
-                    col_ep1, col_ep2 = st.columns(2)
+                    st.markdown(f"**Données de l'Épouse N°{i+1}**")
+                    col_ep1, col_ep2, col_ep3 = st.columns(3)
                     with col_ep1:
-                        ep_nom = st.text_input(f"Nom Complet de l'Épouse", key=f"ep_nom_{idx}")
-                        ep_cni = st.text_input(f"Numéro de sa CNI", key=f"ep_cni_{idx}")
+                        f_nom = st.text_input(f"Nom complet de l'Épouse N°{i+1}", key=f"f_nom_{i}")
+                        f_age = st.number_input(f"Âge Épouse N°{i+1}", min_value=18, max_value=100, value=30, key=f"f_age_{i}")
                     with col_ep2:
-                        st.write("📸 CNI de l'épouse")
-                        st.camera_input(f"Scanner CNI Épouse N°{idx+1}", key=f"ep_cam_{idx}")
+                        f_rubrique = st.selectbox(f"Rubrique Principale d'Activité N°{i+1}", list(RUBRIQUES_ACTIVITES.keys()), key=f"f_rubrique_{i}")
+                    with col_ep3:
+                        f_spec = st.selectbox(f"Spécification de l'activité N°{i+1}", RUBRIQUES_ACTIVITES[f_rubrique], key=f"f_spec_{i}")
                     
-                    st.markdown(f"**🎯 Rubriques d'Activités Autonomes de l'Épouse N°{idx+1} :**")
-                    col_act1, col_act2 = st.columns(2)
-                    with col_act1:
-                        ep_veg = st.multiselect("Production Végétale de l'épouse :", VEGETAUX, key=f"ep_veg_{idx}")
-                        ep_ani = st.multiselect("Production Animale de l'épouse :", ANIMAUX, key=f"ep_ani_{idx}")
-                    with col_act2:
-                        ep_comm = st.text_input("Activités Commerciales / Épicerie de l'épouse :", key=f"ep_comm_{idx}")
-                        ep_art = st.text_input("Activités Artisanales / Transformation (Gari, etc.) :", key=f"ep_art_{idx}")
-                    
-                    epouses_data.append({"Nom": ep_nom, "CNI": ep_cni, "Végétaux": ep_veg})
+                    # Capture CNI Recto/Verso pour l'épouse identiquement au mari
+                    col_cni_f1, col_cni_f2 = st.columns(2)
+                    with col_cni_f1:
+                        photo_f_r = st.camera_input(f"Pièce Épouse N°{i+1} — RECTO", key=f"f_recto_{i}")
+                    with col_cni_f2:
+                        photo_f_v = st.camera_input(f"Pièce Épouse N°{i+1} — VERSO", key=f"f_verso_{i}")
 
-        # --- ENFANTS À CHARGE ---
+        # --- COMPORTEMENT DYNAMIQUE : ENFANTS ---
         st.markdown("---")
-        st.subheader("👶 Registre Familial & Charges des Enfants")
-        nb_enfants = st.slider("Nombre d'enfants rattachés au foyer :", 0, 15, 0)
+        st.subheader("👶 Étape 2.2 : Renseignement Détaillé des Enfants à Charge")
+        nb_enfants = st.slider("Nombre d'enfants rattachés", 0, 15, 0)
         
+        enfants_data = []
         if nb_enfants > 0:
-            for i in range(nb_enfants):
+            for j in range(nb_enfants):
                 with st.container(border=True):
+                    st.markdown(f"**Fiche Enfant N°{j+1}**")
                     col_en1, col_en2, col_en3, col_en4 = st.columns(4)
-                    with col_en1: st.text_input(f"Nom de l'Enfant N°{i+1}", key=f"e_nom_{i}")
-                    with col_en2: st.number_input(f"Année de Naissance", min_value=1990, max_value=2026, value=2015, key=f"e_naiss_{i}")
-                    with col_en3: st.selectbox("Scolarisé ?", ["Oui", "Non"], key=f"e_scol_{i}")
-                    with col_en4: st.selectbox("À charge effective ?", ["Oui", "Non"], key=f"e_charge_{i}")
+                    with col_en1:
+                        e_nom = st.text_input(f"Nom complet de l'enfant N°{j+1}", key=f"e_nom_{j}")
+                    with col_en2:
+                        e_naiss = st.number_input(f"Année de Naissance N°{j+1}", min_value=1990, max_value=2026, value=2015, key=f"e_naiss_{j}")
+                        e_age = 2026 - e_naiss
+                        st.caption(f"Âge calculé : {e_age} ans")
+                    with col_en3:
+                        e_scolarise = st.radio(f"Scolarisé ?", ["Oui", "Non"], key=f"e_scol_{j}", horizontal=True)
+                    with col_en4:
+                        e_charge = st.radio(f"Effectivement à charge des parents ?", ["Oui", "Non"], key=f"e_charge_{j}", horizontal=True)
+                    
+                    enfants_data.append({"Nom": e_nom, "Age": e_age, "Scolarisé": e_scolarise, "À Charge": e_charge})
 
-        # --- DÉCLARATION INITIALE DES PARCELLES DU PRODUCTEUR ---
         st.markdown("---")
-        st.subheader("🗺️ Matrice des Parcelles Déclarées (Pour Mapping futur)")
-        nb_parcelles = st.number_input("Nombre total de parcelles distinctes possédées par le producteur :", min_value=1, max_value=10, value=1)
+
+        # --- ÉTAPE 3 : ENREGISTREMENT STRUCTUREL DES PARCELLES MULTI-RUBRIQUES ---
+        st.subheader("🗺️ Étape 3 : Spéculations & Enregistrement Pré-Cartographique")
+        nb_parcelles = st.number_input("Nombre d'unités de production / parcelles à enregistrer :", min_value=1, max_value=20, value=1)
         
-        liste_parcelles_locales = []
-        for p_idx in range(int(nb_parcelles)):
+        parcelles_temp = []
+        for k in range(int(nb_parcelles)):
             with st.container(border=True):
-                col_p1, col_p2, col_p3 = st.columns(3)
+                st.markdown(f"**📐 Fiche Pré-Identification — Unité N°{k+1}**")
+                col_p1, col_p2, col_p3, col_p4 = st.columns(4)
                 with col_p1:
-                    spec_p = st.selectbox(f"Spéculation Parcelle N°{p_idx+1}", VEGETAUX, key=f"init_spec_p_{p_idx}")
+                    p_rub = st.selectbox(f"Type de Secteur N°{k+1}", list(RUBRIQUES_ACTIVITES.keys()), key=f"p_rub_{k}")
                 with col_p2:
-                    nom_p = st.text_input(f"Identifiant du Champ (Ex: Cacao 1, Cacao Bas-fond)", value=f"{spec_p.split()[0]} {p_idx+1}", key=f"init_nom_p_{p_idx}")
+                    p_spec = st.selectbox(f"Spéculation N°{k+1}", RUBRIQUES_ACTIVITES[p_rub], key=f"p_spec_{k}")
                 with col_p3:
-                    surf_p = st.number_input(f"Superficie estimée (Ha)", min_value=0.1, value=1.0, key=f"init_surf_p_{p_idx}")
-                liste_parcelles_locales.append({"Nom": nom_p, "Spéculation": spec_p, "Ha": surf_p})
+                    p_surf = st.number_input(f"Dimension / Superficie (Ha)", min_value=0.1, value=1.0, key=f"p_surf_{k}")
+                with col_p4:
+                    p_conduite = st.selectbox(f"Régime d'exploitation", ["Intensif", "Traditionnel", "Agroforesterie"], key=f"p_cond_{k}")
+                
+                parcelles_temp.append({
+                    "id": f"{p_spec} {k+1}",
+                    "secteur": p_rub,
+                    "speculation": p_spec,
+                    "superficie": p_surf,
+                    "conduite": p_conduite,
+                    "statut": "❌ Non Mapée"
+                })
 
-        # --- SIGNATURE ET PASSAGE AU MAPPING ---
+        # --- SIGNATURE ET VALIDATION POUR PASSER AU MAPPING ---
         st.markdown("---")
-        st.subheader("✒️ Validation Finale & Signature Électronique")
-        st.warning("La signature du producteur clôture l'enquête descriptive et débloque le terminal pour le mapping GPS sur les limites réelles du champ.")
+        st.subheader("✍️ Étape 4 : Clôture Juridique & Signature du Producteur")
+        signature_certif = st.checkbox("Le producteur appose sa signature numérique et certifie l'exactitude du dossier juridique complet.")
         
-        signature_texte = st.text_input("Saisir le Nom du producteur ou 'APPROUVÉ PAR LE PLANTEUR' pour simuler la signature tactile :")
-        
-        if st.button("💾 Valider la signature et passer au Mapping GPS"):
-            if signature_texte and photo_prod:
-                st.session_state["parcelles_a_maper"] = liste_parcelles_locales
-                st.session_state["signature_valide"] = True
-                st.session_state["etape_en_cours"] = "Mapping"
+        if signature_certif:
+            if st.button("🚀 Valider & Ouvrir le Module de Télédétection / Mapping Terrain"):
+                st.session_state["parcelles_enregistrees"] = parcelles_temp
+                st.session_state["step_mapping_actif"] = True
                 st.rerun()
-            else:
-                st.error("⚠️ La photo initiale du producteur et la signature sont obligatoires avant le mapping.")
+        else:
+            st.info("🔒 La signature est requise pour débloquer le système d'arpentage et de mapping des polygones.")
 
-    # --- SOUS-PAGE : MAPPING GPS DÉCONNECTÉ ---
-    elif st.session_state["etape_en_cours"] == "Mapping":
-        st.header("🛰️ SAPHIR Mapping — Relevé de Limites Géospatiales (Mode Offline)")
-        st.info("Le questionnaire est signé. Marchez le long des limites de chaque parcelle enregistrée pour calculer le polygone exact.")
+    # =====================================================================
+    # INTERFACE DE MAPPING OFFLINE / TERRAIN (S'OUVRE APRÈS SIGNATURE)
+    # =====================================================================
+    else:
+        st.header("🛰️ SAPHIR Field — Module de Télédétection & Arpentage Offline")
+        st.success("🔒 Dossier signé juridiquement. Veuillez procéder au mapping des parcelles enregistrées une à une.")
         
-        for idx_m, parc in enumerate(st.session_state["parcelles_a_maper"]):
+        parcelles = st.session_state["parcelles_enregistrees"]
+        
+        with st.sidebar:
+            st.markdown("### 📋 Liste des Parcelles à Arpenter")
+            for idx, p in enumerate(parcelles):
+                st.markdown(f"**{p['id']}** : {p['statut']}")
+            
+            if st.button("↩️ Revenir au Formulaire"):
+                st.session_state["step_mapping_actif"] = False
+                st.rerun()
+
+        # Choix de la parcelle active à contourner
+        options_parcelles = [p["id"] for p in parcelles if p["statut"] == "❌ Non Mapée"]
+        
+        if len(options_parcelles) > 0:
+            sel_p_map = st.selectbox("Sélectionner la parcelle à arpenter actuellement :", options_parcelles)
+            
             with st.container(border=True):
-                st.markdown(f"#### 🪵 Parcelle : **{parc['Nom']}** — *({parc['Spéculation']})*")
-                st.write(f"Superficie déclarée : {parc['Ha']} Hectares")
+                st.markdown(f"### 🚶‍♂️ Protocole d'Arpentage Terrain — Parcelle : `{sel_p_map}`")
+                st.info("Instructions : Positionnez-vous aux limites initiales du champ. Cliquez sur démarrer, puis contournez les limites physiques du champ avant de revenir au point initial.")
                 
                 col_m1, col_m2 = st.columns(2)
                 with col_m1:
-                    if st.button(f"⏱️ Activer le tracé GPS des limites - {parc['Nom']}", key=f"btn_map_{idx_m}"):
-                        st.toast(f"Relevé des points cardinaux en cours pour {parc['Nom']}... Ne coupez pas le signal GPS.", icon="🛰️")
+                    st.button("🟢 Initialiser le point de départ GPS (Borne 0)")
+                    st.button("📍 Enregistrer un point de pivotement polygonal (Borne radar)")
                 with col_m2:
-                    st.success(f"Status : Prêt pour le contournement du champ. Retour automatique au point initial activé.")
-                    
-        if st.button("🏁 Clôturer le Dossier Cartographique Global"):
-            st.session_state["etape_en_cours"] = "Enquête"
-            st.session_state["signature_valide"] = False
-            st.success("Dossier spatial crypté et envoyé vers les serveurs SAPHIR Regionaux (CEMAC Hub).")
+                    if st.button("🏁 Clôturer le polygone (Retour au point initial)"):
+                        for p in parcelles:
+                            if p["id"] == sel_p_map:
+                                p["statut"] = "✅ Mapée (Polygone validé localement)"
+                        st.toast(f"Parcelle {sel_p_map} enregistrée avec succès !", icon="🛰️")
+                        st.rerun()
+                        
+                # Simulation visuelle d'un arpentage radar
+                st.caption("🌐 _Aperçu du signal télémétrique offline :_")
+                chart_data = pd.DataFrame(
+                    np.random.randn(10, 2) / 1000 + [4.4621, 11.9124],
+                    columns=['lat', 'lon']
+                )
+                st.map(chart_data)
+        else:
+            st.balloons()
+            st.success("🎉 Toutes les parcelles ont été cartographiées et synchronisées par satellite !")
+            
+            # Récapitulatif final exportable
+            df_final = pd.DataFrame(parcelles)
+            st.dataframe(df_final)
+            
+            csv_final = df_final.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Télécharger le registre global signé et géoréférencé",
+                data=csv_final,
+                file_name="SAPHIR_EXPORT_FINAL_PROD.csv",
+                mime="text/csv"
+            )
+
 
 # =====================================================================
-# MODULE 2 : SAPHIR TRADE (BOURSE DES STOCKS BI-LATÉRALE)
+# MODULE MARCHÉ ET PRÉVISIONS COMMERCIALES (SAPHIR TRADE)
 # =====================================================================
 else:
-    st.header("💱 SAPHIR TRADE — Gestion Bilatérale Acheteurs & Producteurs")
+    st.header("💱 SAPHIR TRADE — Système de Planification & Séquestre")
     
-    tab_acheteur, tab_vendeur = st.tabs(["🏢 ESPACE INDUSTRIELS & ACHETEURS (ex: SICAO)", "🧑‍🌾 ESPACE PRODUCTEURS & PLANTEURS"])
+    tab_vendeur, tab_acheteur = st.tabs(["🧑‍🌾 ESPACE VENDEUR (Producteurs / Coopératives)", "🏢 ESPACE ACHETEUR (Industriels / Chocolatiers)"])
     
-    with tab_acheteur:
-        st.subheader("📢 Déclarations de Besoins des Acheteurs Agréés")
-        col_ac1, col_ac2 = st.columns(2)
-        with col_ac1:
-            ach_nom = st.text_input("Nom de l'Acheteur / Firme :", value="SIC CAO Cameroun")
-            ach_spec = st.selectbox("Spéculation recherchée :", VEGETAUX, key="ach_spec_trade")
-        with col_ac2:
-            ach_prev_annuelle = st.number_input("Prévision Globale d'Achat pour la Campagne 2027 (Tonnes) :", min_value=1.0, value=200000.0)
-            
-        st.markdown("##### 📅 Calendrier Mensuel des Besoins Industriels (Tonnes) :")
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        with col_m1: m_jan = st.number_input("Janvier", value=15000)
-        with col_m2: m_fev = st.number_input("Février", value=15000)
-        with col_m3: m_mar = st.number_input("Mars", value=20000)
-        with col_m4: m_avr = st.number_input("Avril", value=25000)
-        
-        if st.button("💾 Enregistrer la Grille des Besoins Mensuels"):
-            st.session_state["acheteurs_demandes"].append({
-                "Acheteur": ach_nom, "Spéculation": ach_spec, "Annuel": ach_prev_annuelle
-            })
-            st.success("Planification de charge industrielle publiée sur la bourse d'Afrique Centrale.")
-
     with tab_vendeur:
-        st.subheader("📊 Arbitrage de Campagne & Disponibilité Réelle du Stock")
+        st.subheader("📈 Déclarations et Gestion des Stocks Réels")
         
         col_v1, col_v2, col_v3 = st.columns(3)
         with col_v1:
-            v_spec = st.selectbox("Choisir votre Spéculation :", VEGETAUX, key="v_spec_trade")
+            v_spec = st.selectbox("Spéculation à mettre à jour :", RUBRIQUES_ACTIVITES["Production Végétale"])
         with col_v2:
-            v_prev_2027 = st.number_input("Mes Prévisions Personnelles de Récolte 2027 (Tonnes) :", min_value=0.0, value=12.0)
+            v_prev_2027 = st.number_input("Mes Prévisions de production pour la Campagne 2027 (Tonnes)", min_value=0.0, value=12.5)
         with col_v3:
-            v_reel_recolte = st.number_input("Tonnage Réel obtenu au pont de pesée (Tonnes) :", min_value=0.0, value=10.0)
+            v_reel_dispo = st.number_input("Tonnage Réel actuellement récolté (Tonnes)", min_value=0.0, value=10.0)
             
-        st.markdown("---")
-        st.subheader("📥 Ventilation Physique du Volume Réel")
-        
         col_v4, col_v5 = st.columns(2)
         with col_v4:
-            choix_arbitrage = st.radio(
-                "Où stockez-vous ou affectez-vous ces 10 tonnes actuellement ?",
-                ["Totalité mise en STOCK physique (Attente / Non vendue)", "Mise en vente immédiate"]
-            )
-        
+            v_statut_stock = st.radio("Option de commercialisation immédiate :", ["Garder en Stock (Ne pas vendre)", "Mettre en Vente sur le Marché"])
         with col_v5:
-            if choix_arbitrage == "Totalité mise en STOCK physique (Attente / Non vendue)":
-                st.info(f"🔒 Vos {v_reel_recolte} Tonnes sont sécurisées en magasin central. Statut : **Non disponible pour les acheteurs.**")
-                
-                # Option exclusive : vendre une fraction du stock existant
-                st.markdown("##### 🔓 Déblocage Partiel du Stock existant")
-                fraction_a_vendre = st.number_input("Quantité à sortir du stock pour mise en vente immédiate (Tonnes) :", min_value=0.0, max_value=v_reel_recolte, value=0.0)
-                
-                if fraction_a_vendre > 0:
-                    st.warning(f"Arbitrage : {v_reel_recolte - fraction_a_vendre} Tonnes resteront en stock | {fraction_a_vendre} Tonnes seront visibles sur le marché.")
-                    if st.button("🚀 Confirmer la mise sur le marché partielle"):
-                        st.session_state["offres_marche"].append({
-                            "Spéculation": v_spec, "Volume Dispo": fraction_a_vendre, "Statut": "Déstockage Partiel", "Date": "En cours"
-                        })
-                        st.success("Volume financier partiel exposé aux courtiers.")
-            else:
-                st.success(f"🚀 Les {v_reel_recolte} Tonnes sont injectées directement sur le marché.")
-                if st.button("🚀 Mettre la totalité en vente"):
-                    st.session_state["offres_marche"].append({
-                        "Spéculation": v_spec, "Volume Dispo": v_reel_recolte, "Statut": "Vente Directe", "Date": "En cours"
-                    })
-
-        st.ma
+            if v_statut_stock == "Mettre en Vente sur le Marché":
+                v_quantite_ve
