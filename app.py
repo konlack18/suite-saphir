@@ -5,8 +5,18 @@ import requests
 import math
 from datetime import datetime
 
-# 🛡️ IMPORTATION SÉCURISÉE DU MOTEUR PROTÉGÉ
-from saphir_engine import Saphir_Core_Engine
+# 🛡️ CHARGEMENT DYNAMIQUE INTERNE — PROTÉGÉ PAR LES SECRETS STREAMLIT
+import sys
+import types
+
+if "SAPHIR_ENGINE_CODE" in st.secrets:
+    saphir_engine = types.ModuleType("saphir_engine")
+    exec(st.secrets["SAPHIR_ENGINE_CODE"], saphir_engine.__dict__)
+    sys.modules["saphir_engine"] = saphir_engine
+    Saphir_Core_Engine = saphir_engine.Saphir_Core_Engine
+else:
+    st.error("🔒 Clé de chiffrement SAPHIR manquante dans l'infrastructure de production.")
+    st.stop()
 
 # --- CONFIGURATION DE L'INTERFACE ---
 st.set_page_config(
@@ -200,7 +210,7 @@ else:
             elif age_plant < 7: facteur_age = 0.8
             else: facteur_age = 1.0
                 
-            production_estimee_tonnes = surf * rendimiento_base * facteur_age if 'rendement_base' in locals() else surf * rendement_base * facteur_age
+            production_estimee_tonnes = surf * rendement_base * facteur_age
             revenu_estime_parcelle = int(production_estimee_tonnes * 1000 * PRIX_REF.get(spec, 1000))
             revenu_agricole_total_pere += revenu_estime_parcelle
             
