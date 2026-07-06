@@ -1,6 +1,6 @@
 # ================================================================
 # SAPHIR Suite v3.0 — Plateforme Agro-Industrielle Intégrée
-# Propriété exclusive de GODDIE Group
+# Propriété exclusive de Group GODGIE S.A.
 # Directeur : Ing. Roméo Moffo Konlack
 # ================================================================
 
@@ -71,7 +71,7 @@ def Saphir_Core_Engine(lat_parcelle, lon_lat_cheflieu, severity_ndvi, pays="Came
     """
     Moteur de calcul SAPHIR CORE.
     Calcule IMQG et IMG, puis le score de risque global.
-    Formules exactes protégées par dépôt OAPI — GODDIE Group 2026.
+    Formules exactes protégées par dépôt OAPI — Group GODGIE S.A. 2026.
     """
     # Points de référence par pays (chef-lieu/port d'entrée)
     refs = {
@@ -210,7 +210,7 @@ NDVI: {resultat_satellite['ndvi']} — {resultat_satellite['statut_ndvi']}
 Score risque: {resultat_core['score_global']}/100
 ACTION: {resultat_core['action']}
 Contacter votre brigade: {tel_brigade}
-GODDIE-SAPHIR"""
+GODGIE-SAPHIR"""
 
     sms_brigade = f"""SAPHIR J+1 - ALERTE CHEF BRIGADE
 Producteur: {parcelle.get('nom_producteur','N/A')}
@@ -223,7 +223,7 @@ SCORE: {resultat_core['score_global']}/100
 ZONE: {resultat_core['zone']}
 PROTOCOLE: {resultat_core['action']}
 Contact planteur: {tel_planteur}
-GODDIE-SAPHIR"""
+GODGIE-SAPHIR"""
 
     return {
         "sms_planteur": sms_planteur,
@@ -331,7 +331,7 @@ st.markdown("""
 <div class="saphir-header">
     <h1>🛡️ SAPHIR Suite v3.0</h1>
     <p>Plateforme Agro-Industrielle Intégrée — Zone CEMAC</p>
-    <small>Propriété exclusive de GODDIE Group | Ing. Roméo Moffo Konlack | konlack18@yahoo.com</small>
+    <small>Propriété exclusive de Group GODGIE S.A. | Ing. Roméo Moffo Konlack | konlack18@yahoo.com</small>
 </div>
 """, unsafe_allow_html=True)
 
@@ -339,7 +339,7 @@ st.markdown("""
 prix_ticker = " 〡 ".join([f"{k}: {v:,} FCFA/kg" for k, v in PRIX_REF_CEMAC.items()])
 st.markdown(f"""
 <div style="background:#1E6B3C;color:white;padding:8px 16px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;">
-    📊 Prix de référence CEMAC (Source : GODDIE Market Intelligence) — {prix_ticker}
+    📊 Prix de référence CEMAC (Source : Group GODGIE Market Intelligence) — {prix_ticker}
 </div>
 """, unsafe_allow_html=True)
 
@@ -361,7 +361,7 @@ if not st.session_state["consentement_valide"]:
         **Vos droits** : accès, rectification, opposition et suppression de vos données sur simple demande à konlack18@yahoo.com
         """)
         c1 = st.checkbox("✅ J'autorise SAPHIR à collecter mes données GPS, photo et agricoles aux fins décrites ci-dessus.")
-        c2 = st.checkbox("✅ J'ai lu et accepté la Charte de Protection des Données GODDIE Group.")
+        c2 = st.checkbox("✅ J'ai lu et accepté la Charte de Protection des Données Group GODGIE S.A..")
         c3 = st.checkbox("✅ Je certifie avoir au moins 18 ans et être habilité à représenter mon exploitation.")
 
         if st.button("🔓 Accéder à SAPHIR Suite", type="primary"):
@@ -453,7 +453,7 @@ if onglet_principal == "📍 SAPHIR FIELD — Mapping & KYC":
                     with st.expander(f"Épouse N°{i+1}"):
                         col_f1, col_f2 = st.columns(2)
                         with col_f1:
-                            st.text_input(f"Nom épouse N°{i+1}", key=f"f_nom_{i}")
+                            st.text_input(f"Nom époque N°{i+1}", key=f"f_nom_{i}")
                             st.number_input(f"Âge épouse N°{i+1}", 18, 100, 30, key=f"f_age_{i}")
                         with col_f2:
                             rub_f = st.selectbox(f"Activité épouse N°{i+1}", list(RUBRIQUES_ACTIVITES.keys()), key=f"f_rub_{i}")
@@ -476,4 +476,4 @@ if onglet_principal == "📍 SAPHIR FIELD — Mapping & KYC":
                             ["Aucune / Uniquement vacances", "Aide après école", "Travail à temps plein"],
                             key=f"e_trav_{j}")
                         age_enfant = 2026 - annee
-                        if implic
+       
