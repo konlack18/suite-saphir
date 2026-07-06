@@ -475,4 +475,5 @@ if onglet_principal == "📍 SAPHIR FIELD — Mapping & KYC":
                         implication = st.selectbox(f"Implication plantation N°{j+1}",
                             ["Aucune / Uniquement vacances", "Aide après école", "Travail à temps plein"],
                             key=f"e_trav_{j}")
-                        if implication == "Travail à temps plein" and (2026 - annee
+                        age_enfant = 2026 - annee
+                        if implic
